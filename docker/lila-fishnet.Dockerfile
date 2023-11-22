@@ -4,6 +4,8 @@ RUN git clone -b fix/pub-sub https://github.com/lenguyenthanh/rediculous.git && 
     cd rediculous && \
     sbt +publishLocal
 
+RUN git config --global --add safe.directory /lila-fishnet
+
 WORKDIR /lila-fishnet
 
 ENTRYPOINT git checkout . && \

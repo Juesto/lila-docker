@@ -4,15 +4,10 @@ RUN git clone -b fix/pub-sub https://github.com/lenguyenthanh/rediculous.git && 
     cd rediculous && \
     sbt +publishLocal
 
-RUN git config --global --add safe.directory /lila-fishnet
-
 WORKDIR /lila-fishnet
 
-ENTRYPOINT git checkout . && \
-    LOCAL_VERSION=$(ls /root/.ivy2/local/io.chrisdavenport/rediculous_3) && \
-    sed -i 's/rediculous.*/rediculous" % "'$LOCAL_VERSION'"/' project/Dependencies.scala && \
-    echo "REDIS_HOST=redis" > .env && \
-    echo "REDIS_PORT=6379" >> .env && \
-    echo "HTTP_SERVER_HOST=0.0.0.0" >> .env && \
-    echo "HTTP_SERVER_PORT=9665" >> .env && \
+ENTRYPOINT \
+    LOCAL_REDICULOUS_VERSION=$(ls /root/.ivy2/local/io.chrisdavenport/rediculous_3) && \
+    sed -i 's/rediculous.*/rediculous" % "'$LOCAL_REDICULOUS_VERSION'"/' project/Dependencies.scala && \
+    echo "REDIS_HOST=redis" >> .env && \
     sbt app/run

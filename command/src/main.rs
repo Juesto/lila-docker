@@ -1,6 +1,8 @@
-use cliclack::{confirm, input, intro, log, multiselect, spinner};
+use cliclack::{confirm, input, intro, log, multiselect, select, spinner};
 use colored::Colorize;
+use local_ip_address::local_ip;
 use std::{
+    collections::HashMap,
     io::Error,
     path::{Path, PathBuf},
 };
@@ -15,22 +17,84 @@ const BANNER: &str = r"
 ";
 
 struct Config {
-    profiles: Vec<String>,
-    setup_database: bool,
-    su_password: String,
-    password: String,
+    profiles: Option<Vec<String>>,
+    setup_database: Option<bool>,
+    su_password: Option<String>,
+    password: Option<String>,
+    hostname: Option<String>,
+    phone_ip: Option<String>,
+    connection_port: Option<u16>,
+    pairing_port: Option<u16>,
+    pairing_code: Option<u32>,
 }
 
 impl Config {
-    fn to_env(&self) -> String {
-        let mut env = String::new();
+    fn to_env(&self) {
+        let current_env_contents = match std::fs::read_to_string(".env") {
+            Ok(config) => config,
+            Err(_) => String::new(),
+        };
 
-        env.push_str(&format!("COMPOSE_PROFILES={}\n", self.profiles.join(",")));
-        env.push_str(&format!("SETUP_DATABASE={}\n", self.setup_database));
-        env.push_str(&format!("SU_PASSWORD={}\n", self.su_password));
-        env.push_str(&format!("PASSWORD={}\n", self.password));
+        let mut config_values: HashMap<String, String> = HashMap::new();
+        for line in current_env_contents.lines() {
+            let mut split = line.split('=');
+            let key = split.next().unwrap();
+            let value = split.next().unwrap();
+            config_values.insert(key.to_string(), value.to_string());
+        }
 
-        env
+        let mut new_config_values: HashMap<String, String> = HashMap::new();
+
+        if let Some(profiles) = &self.profiles {
+            new_config_values.insert(
+                "COMPOSE_PROFILES".to_string(),
+                profiles.join(",").to_string(),
+            );
+        }
+
+        if let Some(setup_database) = &self.setup_database {
+            new_config_values.insert("SETUP_DATABASE".to_string(), setup_database.to_string());
+        }
+
+        if let Some(su_password) = &self.su_password {
+            new_config_values.insert("SU_PASSWORD".to_string(), su_password.to_string());
+        }
+
+        if let Some(password) = &self.password {
+            new_config_values.insert("PASSWORD".to_string(), password.to_string());
+        }
+
+        if let Some(hostname) = &self.hostname {
+            new_config_values.insert("LILA_HOSTNAME".to_string(), hostname.to_string());
+        }
+
+        if let Some(phone_ip) = &self.phone_ip {
+            new_config_values.insert("PHONE_IP".to_string(), phone_ip.to_string());
+        }
+
+        if let Some(connection_port) = &self.connection_port {
+            new_config_values.insert("CONNECTION_PORT".to_string(), connection_port.to_string());
+        }
+
+        if let Some(pairing_port) = &self.pairing_port {
+            new_config_values.insert("PAIRING_PORT".to_string(), pairing_port.to_string());
+        }
+
+        if let Some(pairing_code) = &self.pairing_code {
+            new_config_values.insert("PAIRING_CODE".to_string(), pairing_code.to_string());
+        }
+
+        config_values.extend(new_config_values);
+
+        std::fs::write(
+            ".env",
+            config_values
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<String>>()
+                .join("\n"),
+        )
+        .unwrap();
     }
 }
 
@@ -89,6 +153,8 @@ fn main() -> std::io::Result<()> {
 
     match args[1].as_str() {
         "setup" => setup(),
+        "hostname" => hostname(),
+        "mobile" => mobile_setup(),
         "gitpod-welcome" => {
             gitpod_welcome();
             Ok(())
@@ -124,17 +190,25 @@ fn setup() -> std::io::Result<()> {
         (String::new(), String::new())
     };
 
-    let config = Config {
-        profiles: services
-            .iter()
-            .filter_map(|service| service.compose_profile.clone())
-            .flatten()
-            .map(std::string::ToString::to_string)
-            .collect(),
-        setup_database,
-        su_password,
-        password,
-    };
+    Config {
+        profiles: Some(
+            services
+                .iter()
+                .filter_map(|service| service.compose_profile.clone())
+                .flatten()
+                .map(std::string::ToString::to_string)
+                .collect(),
+        ),
+        setup_database: Some(setup_database),
+        su_password: Some(su_password),
+        password: Some(password),
+        hostname: None,
+        phone_ip: None,
+        connection_port: None,
+        pairing_port: None,
+        pairing_code: None,
+    }
+    .to_env();
 
     create_placeholder_dirs();
 
@@ -183,7 +257,6 @@ fn setup() -> std::io::Result<()> {
         progress.stop(format!("Clone {} ✓", repo.full_name()));
     }
 
-    std::fs::write(".env", config.to_env())?;
     log::success("Wrote .env")
 }
 
@@ -204,6 +277,7 @@ fn create_placeholder_dirs() {
         Repository::new("lichess-org", "chessground"),
         Repository::new("lichess-org", "pgn-viewer"),
         Repository::new("lichess-org", "scalachess"),
+        Repository::new("lichess-org", "mobile"),
         Repository::new("lichess-org", "dartchess"),
         Repository::new("lichess-org", "berserk"),
         Repository::new("cyanfish", "bbpPairings"),
@@ -303,6 +377,14 @@ fn prompt_for_optional_services() -> Result<Vec<OptionalService<'static>>, Error
     )
     .item(
         OptionalService {
+            compose_profile: vec!["mobile"].into(),
+            repositories: vec![Repository::new("lichess-org", "mobile")].into(),
+        },
+        "Mobile app",
+        "Flutter-based mobile app",
+    )
+    .item(
+        OptionalService {
             compose_profile: None,
             repositories: vec![Repository::new("lichess-org", "dartchess")].into(),
         },
@@ -326,6 +408,80 @@ fn prompt_for_optional_services() -> Result<Vec<OptionalService<'static>>, Error
         "bbpPairings tool",
     )
     .interact()
+}
+
+fn hostname() -> std::io::Result<()> {
+    let local_ip = match local_ip() {
+        Ok(ip) => ip.to_string(),
+        _ => "127.0.0.1".to_string(),
+    };
+
+    let hostname: String = match select("Select a hostname to access your local Lichess instance:")
+        .initial_value("localhost")
+        .item("localhost", "localhost", "default")
+        .item(
+            local_ip.as_str(),
+            local_ip.as_str(),
+            "Your private IP address",
+        )
+        .item("other", "Other", "Enter a custom hostname")
+        .interact()?
+    {
+        "other" => input("Enter a custom hostname:  (It must be resolvable)").interact()?,
+        selection => selection.to_string(),
+    };
+
+    Config {
+        profiles: None,
+        setup_database: None,
+        su_password: None,
+        password: None,
+        hostname: Some(hostname),
+        phone_ip: None,
+        connection_port: None,
+        pairing_port: None,
+        pairing_code: None,
+    }
+    .to_env();
+
+    Ok(())
+}
+
+fn mobile_setup() -> std::io::Result<()> {
+    let phone_ip: String = input("Your phone's private IP address")
+        .placeholder("192.168.x.x or 10.x.x.x")
+        .interact()?;
+    let connection_port: u16 = input("Wireless debugging port")
+        .validate(|input: &String| validate_string_length(input, 5))
+        .interact()?;
+    let pairing_port: u16 = input("Pairing port")
+        .validate(|input: &String| validate_string_length(input, 5))
+        .interact()?;
+    let pairing_code: u32 = input("Pairing code")
+        .validate(|input: &String| validate_string_length(input, 6))
+        .interact()?;
+
+    Config {
+        profiles: None,
+        setup_database: None,
+        su_password: None,
+        password: None,
+        hostname: None,
+        phone_ip: Some(phone_ip),
+        connection_port: Some(connection_port),
+        pairing_port: Some(pairing_port),
+        pairing_code: Some(pairing_code),
+    }
+    .to_env();
+
+    Ok(())
+}
+
+fn validate_string_length(input: &String, length: usize) -> Result<(), String> {
+    match input.len() {
+        len if len == length => Ok(()),
+        _ => Err(format!("Value should be {length} digits in length")),
+    }
 }
 
 fn gitpod_welcome() {

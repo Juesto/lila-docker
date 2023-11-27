@@ -420,9 +420,14 @@ fn hostname() -> std::io::Result<()> {
         .initial_value("localhost")
         .item("localhost", "localhost", "default")
         .item(
+            "10.0.2.2",
+            "10.0.2.2",
+            "For accessing from an Android emulator running on this machine",
+        )
+        .item(
             local_ip.as_str(),
             local_ip.as_str(),
-            "Your private IP address",
+            "Your private IP address, for accessing from other devices on your local network",
         )
         .item("other", "Other", "Enter a custom hostname")
         .interact()?
